@@ -20,12 +20,14 @@ class BugHoundAgent:
         # client should implement: complete(system_prompt: str, user_prompt: str) -> str
         self.client = client
         self.logs: List[Dict[str, str]] = []
+        self.analysis_fallback_used = False
 
     # ----------------------------
     # Public API
     # ----------------------------
     def run(self, code_snippet: str) -> Dict[str, Any]:
         self.logs = []
+        self.analysis_fallback_used = False
         self._log("PLAN", "Planning a quick scan + fix proposal workflow.")
 
         issues = self.analyze(code_snippet)
@@ -74,12 +76,14 @@ class BugHoundAgent:
             raw = self.client.complete(system_prompt=system_prompt, user_prompt=user_prompt)
         except Exception as e:
             self._log("ANALYZE", f"API Error: {str(e)}. Falling back to heuristics.")
+            self.analysis_fallback_used = True
             return self._heuristic_analyze(code_snippet)
 
         issues = self._parse_json_array_of_issues(raw)
 
         if issues is None:
             self._log("ANALYZE", "LLM output was not parseable JSON. Falling back to heuristics.")
+            self.analysis_fallback_used = True
             return self._heuristic_analyze(code_snippet)
 
         return issues
@@ -91,6 +95,10 @@ class BugHoundAgent:
 
         if not self._can_call_llm():
             self._log("ACT", "Using heuristic fixer (offline mode).")
+            return self._heuristic_fix(code_snippet, issues)
+
+        if self.analysis_fallback_used:
+            self._log("ACT", "Analyzer fallback was used, forcing heuristic fixer for safer consistency.")
             return self._heuristic_fix(code_snippet, issues)
 
         self._log("ACT", "Using LLM fixer.")
@@ -175,26 +183,44 @@ class BugHoundAgent:
         text = text.strip()
         parsed = self._try_json_loads(text)
         if isinstance(parsed, list):
-            return self._normalize_issues(parsed)
+            normalized = self._normalize_issues(parsed)
+            if normalized:
+                return normalized
+            if len(parsed) == 0:
+                return []
+            return None
 
         array_str = self._extract_first_json_array(text)
         if array_str:
             parsed2 = self._try_json_loads(array_str)
             if isinstance(parsed2, list):
-                return self._normalize_issues(parsed2)
+                normalized2 = self._normalize_issues(parsed2)
+                if normalized2:
+                    return normalized2
+                if len(parsed2) == 0:
+                    return []
+                return None
 
         return None
 
     def _normalize_issues(self, arr: List[Any]) -> List[Dict[str, str]]:
         issues: List[Dict[str, str]] = []
+        allowed_severities = {"low", "medium", "high"}
         for item in arr:
             if not isinstance(item, dict):
                 continue
+            issue_type = str(item.get("type", "")).strip()
+            severity = str(item.get("severity", "")).strip()
+            msg = str(item.get("msg", "")).strip()
+
+            if not issue_type or not msg or severity.lower() not in allowed_severities:
+                continue
+
             issues.append(
                 {
-                    "type": str(item.get("type", "Issue")),
-                    "severity": str(item.get("severity", "Unknown")),
-                    "msg": str(item.get("msg", "")).strip(),
+                    "type": issue_type,
+                    "severity": severity.capitalize(),
+                    "msg": msg,
                 }
             )
         return issues

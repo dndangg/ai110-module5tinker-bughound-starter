@@ -28,6 +28,12 @@ Given a short Python snippet, BugHound:
 
 ---
 
+## Student Guidance
+
+An agentic system is a workflow where humans intervene at critical points. Bughound uses an LLM for suggestions, but reliability checks and logic decide when to trust or reject those suggestions. Students might assume integration means replacing a rule based system with an LLM, but it's actually the opposite, where good AI systems add safeguards and fallback paths. Making sure they're comfortable reading error logs and running tests on mock clients without spending API quota is important. Gemini is good at understanding intent in code review prompts, but JSON parsing failures are common and require fallbacks. Students shouldn't trust an API response as truth. Before adding a new feature, they should trace through where it plugs into the 5 step workflow (PLAN/ANALYZE/ACT/TEST/REFLECT), then figure out when and where it will fail and how the system will recover.
+
+---
+
 ## Setup
 
 ### 1. Create a virtual environment (recommended)

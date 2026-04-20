@@ -1,3 +1,4 @@
+import difflib
 from typing import Dict, List
 
 
@@ -61,6 +62,25 @@ def assess_risk(
         # This is usually good, but still risky.
         score -= 5
         reasons.append("Bare except was modified, verify correctness.")
+
+    # If a fix touches many lines at once, be more conservative about auto-apply.
+    diff_lines = list(
+        difflib.unified_diff(
+            original_code.splitlines(),
+            fixed_code.splitlines(),
+            lineterm="",
+        )
+    )
+    changed_line_count = sum(
+        1
+        for line in diff_lines
+        if (line.startswith("+") or line.startswith("-"))
+        and not line.startswith("+++")
+        and not line.startswith("---")
+    )
+    if changed_line_count > 6:
+        score -= 10
+        reasons.append("Fix modifies many lines; review for unintended behavior changes.")
 
     # ----------------------------
     # Clamp score
